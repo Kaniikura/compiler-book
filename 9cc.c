@@ -50,6 +50,22 @@ Token *token;
 // 入力されたプログラム
 char *user_input;
 
+// プロトタイプ宣言
+void error_at(char *, char *, ...);
+void error(char *, ...);
+Node *new_node(NodeKind, Node *, Node *);
+Node *new_node_num(int);
+Node *expr();
+Node *mul();
+Node *primary();
+void gen(Node *);
+bool consume(char);
+void expect(char);
+int expect_number();
+bool at_eof();
+Token *new_token(TokenKind, Token *, char *);
+Token *tokenize(char *);
+
 // エラー箇所を報告する
 void error_at(char *loc, char *fmt, ...)
 {
@@ -105,7 +121,7 @@ Node *expr()
   {
     if (consume('+'))
       node = new_node(ND_ADD, node, mul());
-    else if (cunsume('-'))
+    else if (consume('-'))
       node = new_node(ND_SUB, node, mul());
     else
       return node;
@@ -156,7 +172,7 @@ void gen(Node *node)
   gen(node->rhs);
 
   printf("  pop rdi\n");
-  printf("  pop rak\n");
+  printf("  pop rax\n");
 
   switch (node->kind)
   {
@@ -263,38 +279,27 @@ int main(int argc, char **argv)
 {
   if (argc != 2)
   {
-    fprintf(stderr, "引数の個数が正しくありません\n");
+    error("引数の個数が正しくありません");
     return 1;
   }
   // ユーザーの入力を保存しておく
   user_input = argv[1];
-
   // トークナイズする
   token = tokenize(argv[1]);
+  // 構文解析
+  Node *node = expr();
 
   // アセンブリの前半部分を出力
   printf(".intel_syntax noprefix\n");
   printf(".globl main\n");
   printf("main:\n");
 
-  // 式の最初は数でなければならないので、それをチェックして
-  // 最初のmov命令を出力
-  printf("  mov rax, %d\n", expect_number());
+  // 抽象構文木を下りながらコード作成
+  gen(node);
 
-  // '+ <数>'あるいは'- <数>'トークンの並びを消費しつつ
-  // アセンブリを出力
-
-  while (!at_eof())
-  {
-    if (consume('+'))
-    {
-      printf("  add rax, %d\n", expect_number());
-      continue;
-    }
-    expect('-');
-    printf("  sub rax, %d\n", expect_number());
-  }
-
+  // スタックトップに式全体の値が残っているはずなので
+  // それをRAXにロードして関数からの返り値とする
+  printf("  pop rax\n");
   printf("  ret\n");
   return 0;
 }
