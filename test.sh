@@ -26,5 +26,20 @@ assert 4 "(3+5)/2"
 assert 10 "-10+20"
 assert 23 "+3+12+8"
 assert 11 "-1+13-1"
+assert 1 "2==2"
+assert 0 "2==1"
+assert 0 "3!=3"
+assert 1 "2!=3"
+assert 0 '1>2'
+assert 1 '5>2'
+assert 0 '1>=2'
+assert 1 '2>=2'
+assert 1 '5>=2'
+assert 1 '1<2'
+assert 0 '5<2'
+assert 1 '1<=2'
+assert 1 '2<=2'
+assert 0 '5<=2'
+assert 1 '3*(4+2)>8*2==(22-4)<19'
 
 echo OK
