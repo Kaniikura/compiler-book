@@ -22,6 +22,7 @@ struct Token
   Token *next;    // 次の入力トークン
   int val;        // kindがTK_NUMの場合、その数値
   char *str;      // トークン文字列
+  int len;        // トークンの長さ
 };
 
 // 抽象構文木のノードの種類
@@ -31,6 +32,10 @@ typedef enum
   ND_SUB, // -
   ND_MUL, // *
   ND_DIV, // /
+  ND_EQ,  // ==
+  ND_NE,  // !=
+  ND_LT,  // <
+  ND_LE,  // <=
   ND_NUM, // 整数
 } NodeKind;
 
@@ -41,6 +46,7 @@ struct Node
   NodeKind kind; // ノードの型
   Node *lhs;     // 左辺
   Node *rhs;     // 右辺
+  int len;       // ノードの長さ
   int val;       // kindがND_NUMの場合のみ使う
 };
 
@@ -53,18 +59,22 @@ char *user_input;
 // プロトタイプ宣言
 void error_at(char *, char *, ...);
 void error(char *, ...);
-Node *new_node(NodeKind, Node *, Node *);
+Node *new_node(NodeKind, Node *, Node *, int);
 Node *new_node_num(int);
 Node *expr();
+Node *equality();
+Node *relational();
+Node *add();
 Node *mul();
 Node *unary();
 Node *primary();
 void gen(Node *);
-bool consume(char);
-void expect(char);
+bool consume(char *);
+void expect(char *);
 int expect_number();
 bool at_eof();
-Token *new_token(TokenKind, Token *, char *);
+bool start_with(char *, char *);
+Token *new_token(TokenKind, Token *, char *, int);
 Token *tokenize(char *);
 
 // エラー箇所を報告する
@@ -95,12 +105,13 @@ void error(char *fmt, ...)
 
 // 新しいノードを作るための関数
 // ノードには２項演算子と数値の２種類あるので、それぞれ関数を作成する
-Node *new_node(NodeKind kind, Node *lhs, Node *rhs)
+Node *new_node(NodeKind kind, Node *lhs, Node *rhs, int len)
 {
   Node *node = calloc(1, sizeof(Node));
   node->kind = kind;
   node->lhs = lhs;
   node->rhs = rhs;
+  node->len = len;
   return node;
 }
 
@@ -113,17 +124,60 @@ Node *new_node_num(int val)
 }
 
 // トークン列を構文木にパースする関数
-// 生成規則: expr = mul ("+" mul | "-" mul)*
+// expr = equality
 Node *expr()
+{
+  Node *node = equality();
+  return node;
+}
+
+// equality = relational ("==" relational | "!=" relational)*
+Node *equality()
+{
+  Node *node = relational();
+
+  for (;;)
+  {
+    if (consume("=="))
+      node = new_node(ND_EQ, node, relational(), 2);
+    else if (consume("!="))
+      node = new_node(ND_NE, node, relational(), 2);
+    else
+      return node;
+  }
+}
+
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+Node *relational()
+{
+  Node *node = add();
+
+  for (;;)
+  {
+    if (consume("<"))
+      node = new_node(ND_LT, node, add(), 1);
+    else if (consume("<="))
+      node = new_node(ND_LE, node, add(), 2);
+    else if (consume(">"))
+      node = new_node(ND_LT, add(), node, 1);
+    else if (consume(">="))
+      node = new_node(ND_LE, add(), node, 2);
+    else
+      return node;
+  }
+}
+
+// 生成規則: add = mul ("+" mul | "-" mul)*
+Node *add()
 {
   Node *node = mul();
 
   for (;;)
   {
-    if (consume('+'))
-      node = new_node(ND_ADD, node, mul());
-    else if (consume('-'))
-      node = new_node(ND_SUB, node, mul());
+    if (consume("+"))
+      node = new_node(ND_ADD, node, mul(), 1);
+    else if (consume("-"))
+      node = new_node(ND_SUB, node, mul(), 1);
     else
       return node;
   }
@@ -136,10 +190,10 @@ Node *mul()
 
   for (;;)
   {
-    if (consume('*'))
-      node = new_node(ND_MUL, node, unary());
-    else if (consume('/'))
-      node = new_node(ND_DIV, node, unary());
+    if (consume("*"))
+      node = new_node(ND_MUL, node, unary(), 1);
+    else if (consume("/"))
+      node = new_node(ND_DIV, node, unary(), 1);
     else
       return node;
   }
@@ -148,13 +202,13 @@ Node *mul()
 // 生成規則: unary = ("+" | "-")? primary
 Node *unary()
 {
-  if (consume('+'))
+  if (consume("+"))
   {
     return primary();
   }
-  if (consume('-'))
+  if (consume("-"))
   {
-    return new_node(ND_SUB, new_node_num(0), primary());
+    return new_node(ND_SUB, new_node_num(0), primary(), 1);
   }
   return primary();
 }
@@ -163,10 +217,10 @@ Node *unary()
 Node *primary()
 {
   // 次のトークンが"("なら、"(" expr ")"のはず
-  if (consume('('))
+  if (consume("("))
   {
     Node *node = expr();
-    expect(')');
+    expect(")");
     return node;
   }
 
@@ -204,6 +258,26 @@ void gen(Node *node)
     printf("  cqo\n");
     printf("  idiv rdi\n");
     break;
+  case ND_EQ:
+    printf("  cmp rax, rdi\n");
+    printf("  sete al\n");
+    printf("  movzb rax, al\n");
+    break;
+  case ND_NE:
+    printf("  cmp rax, rdi\n");
+    printf("  setne al\n");
+    printf("  movzb rax, al\n");
+    break;
+  case ND_LT:
+    printf("  cmp rax, rdi\n");
+    printf("  setl al\n");
+    printf("  movzb rax, al\n");
+    break;
+  case ND_LE:
+    printf("  cmp rax, rdi\n");
+    printf("  setle al\n");
+    printf("  movzb rax, al\n");
+    break;
   }
 
   printf("  push rax\n");
@@ -211,9 +285,11 @@ void gen(Node *node)
 
 // 次のトークンが期待している記号のときには、トークンを１つ読み進めて
 // 真を返す。それ以外の場合には偽を返す。
-bool consume(char op)
+bool consume(char *op)
 {
-  if (token->kind != TK_RESERVED || token->str[0] != op)
+  if (token->kind != TK_RESERVED ||
+      strlen(op) != token->len ||
+      memcmp(token->str, op, token->len))
     return false;
   token = token->next;
   return true;
@@ -221,10 +297,12 @@ bool consume(char op)
 
 // 次のトークンが期待している記号のときには、トーコンを１つ読み進める。
 // それ以外の場合にはエラーを報告する。
-void expect(char op)
+void expect(char *op)
 {
-  if (token->kind != TK_RESERVED || token->str[0] != op)
-    error_at(token->str, "'%c'ではありません", op);
+  if (token->kind != TK_RESERVED ||
+      strlen(op) != token->len ||
+      memcmp(token->str, op, token->len))
+    error_at(token->str, "' % s 'ではありません", op);
   token = token->next;
 }
 
@@ -244,12 +322,18 @@ bool at_eof()
   return token->kind == TK_EOF;
 }
 
+bool startswith(char *p, char *q)
+{
+  return memcmp(p, q, strlen(q)) == 0;
+}
+
 // 新しいトークンを作成してcurに繋げる
-Token *new_token(TokenKind kind, Token *cur, char *str)
+Token *new_token(TokenKind kind, Token *cur, char *str, int len)
 {
   Token *tok = calloc(1, sizeof(Token));
   tok->kind = kind;
   tok->str = str;
+  tok->len = len;
   cur->next = tok;
   return tok;
 }
@@ -270,15 +354,23 @@ Token *tokenize(char *p)
       continue;
     }
 
-    if (*p == '+' || *p == '-' || *p == '*' || *p == '/' || *p == '(' || *p == ')')
+    if (startswith(p, "==") || startswith(p, "!=") ||
+        startswith(p, "<=") || startswith(p, ">="))
     {
-      cur = new_token(TK_RESERVED, cur, p++);
+      cur = new_token(TK_RESERVED, cur, p, 2);
+      p += 2;
+    }
+
+    if (*p == '+' || *p == '-' || *p == '*' || *p == '/' ||
+        *p == '(' || *p == ')' || *p == '<' || *p == '>')
+    {
+      cur = new_token(TK_RESERVED, cur, p++, 1);
       continue;
     }
 
     if (isdigit(*p))
     {
-      cur = new_token(TK_NUM, cur, p);
+      cur = new_token(TK_NUM, cur, p, 0);
       cur->val = strtol(p, &p, 10);
       continue;
     }
@@ -286,7 +378,7 @@ Token *tokenize(char *p)
     error_at(p, "トークナイズできません");
   }
 
-  new_token(TK_EOF, cur, p);
+  new_token(TK_EOF, cur, p, 0);
   return head.next;
 }
 
