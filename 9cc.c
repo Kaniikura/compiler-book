@@ -124,14 +124,15 @@ Node *new_node_num(int val)
 }
 
 // トークン列を構文木にパースする関数
-// expr = equality
+
+// 生成規則: expr = equality
 Node *expr()
 {
   Node *node = equality();
   return node;
 }
 
-// equality = relational ("==" relational | "!=" relational)*
+// 生成規則: equality = relational ("==" relational | "!=" relational)*
 Node *equality()
 {
   Node *node = relational();
@@ -147,7 +148,7 @@ Node *equality()
   }
 }
 
-// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+// 生成規則: relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 Node *relational()
 {
   Node *node = add();
@@ -317,11 +318,13 @@ int expect_number()
   return val;
 }
 
+// トークン列の終端かを判別する
 bool at_eof()
 {
   return token->kind == TK_EOF;
 }
 
+// 文字列の先頭がある文字列から始まるかを判定する
 bool startswith(char *p, char *q)
 {
   return memcmp(p, q, strlen(q)) == 0;
